@@ -1,0 +1,344 @@
+Snapshot, Not Differences
+
+Git: Snapshot at the moment, and stroes a reference to the snapshot.
+VCS: Changes over time.
+
+
+Git: nearly every operation is local
+VCS: depends on the network
+
+Git has integrity: everything in Git is check-summed before it is stored
+and is then referred to by that checksum.
+
+Sha-1 hash: sha1sum
+
+Three main states
+
+working directory: 
+stage area: stage 
+git directory(repository): commited
+
+
+Install:
+yum install git-core
+apt-get install git-core
+
+Configure git environment:
+
+git config
+
+/etc/gitconfig: git config --system
+~/.gitconfig:   git conifg --global
+.git/config:    git conifg --local
+
+git config --global user.name ""
+git config --global user.email ""
+
+Editor: git config --global core.editor emacs/vim
+Diff tool: git config --global meger.tool vimdiff/meld
+
+git config --list
+
+git help config
+
+
+Getting a Git repository
+
+git init
+git clone git://github.com/*.git mygit(directory)
+
+Recording Changes to the Repository
+
+tracked or untracked
+
+Tracked files are files that were in the last snapshot,
+they can be unmodified, modified, or staged.
+
+Untracked files are everything else - any files in your
+working directory that were not in your last snapshot and
+not in your staging area.
+
+Checking the status of Your files:
+git status
+
+git add: Untracked to Tracked
+
+Ignoring Files:
+
+cat .gitignore
+*.[oa] //ignore any files ending in .o or .a
+*~     //ignore all files that end with ~
+
+# a comment - this is ignored
+*.a         #no .a files
+!lib.a      #but do track lib.a, even though you're ignoring .a files above
+/TODO       #only ignore the root TODO file, not subdir/TODO
+build/      #ignore all files in the build/ directory
+doc/*.txt   #ignore doc/notes.txt, but not doc/subdir/arch.txt
+
+
+Viewing Your staged and Unstaged Changes:
+
+Changed but not yet staged: git diff 
+The command compares what is in your working directory with what is in your
+staging area.
+
+git diff --cached or git diff --staged
+This command compares your staged changes to your last commit.
+
+
+Commiting your Changes
+
+git commit -m ""
+git commit -a -m "" //skipping the staging area
+
+git rm //the next time you commit, the file will be gone and no longer tracked
+
+git rm --cached file //remove it from your staging area, but keeping the file
+in your working tree
+
+
+Moving files
+
+rename a file in Git, git mv file_from file_to
+
+Viewing the commit history
+
+git log
+git log -p //option p shows the diff introduced in each commit
+git log --stat //option stat shows some abbreviated stats for each commit
+git log --pretty //pretty change the log output to formats other than the default
+git log --pretty=oneline --graph //graph adds a nice little ASCII graph showing 
+your branch and meger history
+git log --abbrev-commit //abbrev-commit show only the first characters of the SHA-1
+checksum instead of 40
+
+Limiting Log Output
+
+git log -N //show your the last N commit
+git log --since=2.weeks
+
+
+Changing your last commit
+git commit --amend //possibly forget to add some files, or mess up your commit message
+
+example:
+git commit -m "initial commit"
+git add forgotten_file
+git commit --amend
+
+Unstaging a staged file:
+git reset HEAD file
+
+Unmodifying a Modified file
+
+git checkout -- file //
+
+
+Working with Remotes
+
+Showing the Remotes:
+git remote or git remote -v
+
+Adding Remote Repositories:
+git remote add shortname remote_Git_repository
+
+git remote -v
+shortname remote_Git_repository
+
+git fetch shortname //if master branch, will fetch and meger automatically, else just fetching
+
+git fetch remote
+git fetch origin //fetches any new work that has been pushed to the server since your cloned it
+
+Pushing to your remotes:
+
+git push [remote-name] [branch-name]
+git push origin master //push master branch to the origin server
+
+
+Inspecting a Remote
+
+git remote show [remote-name] //
+
+
+Removing and Renaming Remotes
+
+git remote rename old new
+git remote rm name
+
+
+Tagging
+
+Listing your Tags:
+git tag
+
+Creating Tags
+lightweight and annotated tag: 
+a lightweight tag just a pointer to a specific commit
+Annotated tags are stored as full objects in the Git database, will be checksummed,
+contain the tagger name,e-mail, and date.
+
+Annotated Tag:
+git tag -a tag_name -m "" //m option specifies a tagging message
+git show tag_name
+
+Signed Tag:
+git tag -s "tag_name" -m ""
+
+Lightweight Tags:
+git tag tag_name
+git tag -a tag_name commit
+
+Sharing Tags:
+git push origin tagname
+git push origin --tags //push all tags to the remote server
+
+Auto-Completion
+
+cd git/contrib/completion
+cp git-completion.bash ~/.git-completion.bash
+vim .bashrc
+source ~/.git-completion.bash
+
+Git Aliases
+
+git config --global alias.co checkout
+git config --global alias.br branch
+git config --global alias.unstage 'reset HEAD --'
+
+
+Git branching
+
+When you create the commit by running git commit, Git checksums each 
+subdirectory and stores those objects in the Git repository. Git then
+creates a commit object that has the metadata and pointer to the root
+project tree so it can re-create that snapshot when needed.
+
+One blob for the contents of each of your file, one tree that lists 
+the contents of the directory and specifies which file names and stored
+as which blobs, and one commit with the pointer to that root tree and
+all the commit metadata.
+
+checksum1		checksum2		checksum3
+commit	size 		tree	size		blob 	size
+tree	checksum2	blob checksum3 name	...
+parent	checksume
+author 			...
+committer 
+...
+
+
+.git/HEAD
+HEAD: a pointer to the local branch you're currently on
+
+git branch testing	//create a branch, named testing, HEAD -> master
+git checkout testing	//switch to testing branch, HEAD -> testing
+
+git checkout -b testing	//creating a new branch testing and switched to it
+
+git checkout master
+git merge testing	//merge the testing branch to the current branch
+git branch -d testing	//delete the testing branch
+
+git status		//check which files are unmerged at any point after a merge conflict
+
+git branch --merged	//which branches are already merged into the branch you're on
+git branch --no-merged	//haven't yet merged
+
+
+Rebase
+
+git checkout testing
+git rebase master	//resetting the current branch to the same commit as the branch
+			  you're rebasing onto, and finally applying each change in turn
+
+git rebase --onto master server client	//rebase the client change to master except the server changes
+
+git rebase [basebranch] [topicbranch]	//checks out the topic branch and replays it onto the base branch
+
+
+////Do not rebase commits that you have pushed to a public repository.
+
+
+Git Server
+
+Git can use four major network protocols to transfer data: Local, Secure Shell(SSH), Git and Http.
+
+Local Protocol
+The most basic is the Local Protocol, in which the remote repository is in another directory on disk.
+
+git clone /opt/git/project.git		//hardlinks or directly copy the files it needs
+or	
+git clone file:///opt/git/project.git	//clean copy of the repository
+
+git remote add local_porj /opt/git/project.git
+
+The SSH protocol
+git clone ssh://user@server:project.git
+or 
+git clone user@server:project.git
+
+
+The Git protocol
+
+The HTTP/S protocol
+
+git clone --bare /path/to/git_project gitproject.git
+cd gitproject.git
+mv hooks/post-update.sample hooks/post-update
+chmod a+x hooks/post-update
+
+
+SSH
+ssh-keygen
+cd ~/.ssh
+ls
+authorized_keys 	id_dsa		known_hosts
+config			id_dsa.pub
+
+cat id_dsa.pub >> authorized_keys	//add the pub key into the authorized_key	
+
+
+git format-patch 
+git send-email *.patch
+
+git apply *.patch	//apply the patch generated by git diff or diff command
+			  similiar with "patch -p1 <", must stage and commit the
+			  changes manually
+
+git apply --check *.patch	//check a patch applies cleanly before actually apply it
+
+git am *.patch 		//apply patch generated by format-patch
+git am --resolved
+
+git cherry-pick commit_id
+
+git describe master
+
+Preparing a Release
+git archive master --prefix='project/' | gzip > 'git describe master'.tar.gz
+git archive master --prefix='project/' --format=zip > 'git describe master'.tar.zip
+
+
+git shortlog --no-merges master --not v1.0.1
+
+
+git reflog
+git show HEAD@{5}
+git log -g master
+
+git stash
+git stash list
+git stash apply 
+git stash drop stash@{0}
+
+
+git commit --amend
+git blame *.c
+
+git bisect start
+git bisect bad
+git bisect good v1.0
+
+git apply --whitespace=fix/warn <patch>
