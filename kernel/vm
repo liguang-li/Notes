@@ -51,6 +51,36 @@ loaded kernel image in low memory machines.
 			    |
 	ZONE_DMA	ZONE_NORMAL	ZONE_HIGHMEM
 	    |		    |		     |
-	mem_map		  mem_map	    mem_map
+	node_mem_map	node_mem_map	   node_mem_map
 	    |		    |		     |
 	   page		   page		    page
+
+
+Nodes:
+Each node in memory is described by a pg_data_t which is a typedef for
+a struct pglist_data. When allocating a page, Linux uses a node-local 
+allocation policy to allocate memory from the node closest to the running
+CPU. As processes tend to run on the same CPU, it is likely the memory 
+from the current node will be used. 
+
+The struct is declared as follows in <linux/mmzone.h>
+
+129 typedef struct pglist_data {
+130     zone_t node_zones[MAX_NR_ZONES];		//The zones for this node, ZONE_HIGHMEM, ZONE_NORMAL, ZONE_DMA
+131     zonelist_t node_zonelists[GFP_ZONEMASK+1];	//his is the order of zones that allocations are preferred from. 
+							//A failed allocation in ZONE_HIGHMEM may fall back to ZONE_NORMAL or back to ZONE_DMA;
+132     int nr_zones;					//Number of zones in this node, between 1 and 3
+133     struct page *node_mem_map;			//
+134     unsigned long *valid_addr_bitmap;		//A bitmap which describes “holes” in the memory node that no memory exists for. (Sparc and Sparc64)
+135     struct bootmem_data *bdata;			//This is only of interest to the boot memory allocator
+136     unsigned long node_start_paddr;			//The starting physical address of the node
+137     unsigned long node_start_mapnr;			//gives the page offset within the global mem_map ?
+138     unsigned long node_size;			//The total number of pages in this zone
+139     int node_id;					//The Node ID (NID) of the node, starts at 0
+140     struct pglist_data *node_next;			//Pointer to next node in a NULL terminated list
+141 } pg_data_t; 
+
+All nodes in the system are maintained on a list called pgdat_list. 
+
+Initialized by the init_bootmem_core() function.
+Macro for_each_online_pgdat() is used to traverse the list
