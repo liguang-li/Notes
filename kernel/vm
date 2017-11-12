@@ -73,9 +73,9 @@ The struct is declared as follows in <linux/mmzone.h>
 133     struct page *node_mem_map;			//
 134     unsigned long *valid_addr_bitmap;		//A bitmap which describes “holes” in the memory node that no memory exists for. (Sparc and Sparc64)
 135     struct bootmem_data *bdata;			//This is only of interest to the boot memory allocator
-136     unsigned long node_start_paddr;			//The starting physical address of the node
+136     unsigned long node_start_paddr;/node_start_pfn	//The starting physical address of the node
 137     unsigned long node_start_mapnr;			//gives the page offset within the global mem_map ?
-138     unsigned long node_size;			//The total number of pages in this zone
+138     unsigned long node_size;/node_present_pages and node_spanned_pages	//The total number of pages in this zone
 139     int node_id;					//The Node ID (NID) of the node, starts at 0
 140     struct pglist_data *node_next;			//Pointer to next node in a NULL terminated list
 141 } pg_data_t; 
@@ -84,3 +84,148 @@ All nodes in the system are maintained on a list called pgdat_list.
 
 Initialized by the init_bootmem_core() function.
 Macro for_each_online_pgdat() is used to traverse the list
+
+
+Zones
+Zones are described by a struct zone_struct and is usually referred
+to by it's typedef zone_t. It keeps track of information like page 
+usage statistics, free area information and locks.
+
+It is declared as follows in <linux/mmzone.h>:
+
+37 typedef struct zone_struct {
+41     spinlock_t        lock;				//Spinlock to protect the zone from concurrent accesses
+42     unsigned long     free_pages;			//Total number of free pages in the zone
+43     unsigned long     pages_min, pages_low, pages_high; //zone watermarks
+44     int               need_balance;			//tells the pageout kswapd to balance the zone
+45 
+49     free_area_t       free_area[MAX_ORDER];		//Free area bitmaps used by the buddy allocator
+50 
+76     wait_queue_head_t * wait_table;			//A hash table of wait queues of processes waiting on a page to be freed
+77     unsigned long     wait_table_size;		//Number of queues in the hash table which is a power of 2
+78     unsigned long     wait_table_shift;		//the number of bits in a long minus the binary logarithm of the table size above ??
+79 
+83     struct pglist_data *zone_pgdat;			//Points to the parent pg_data_t
+84     struct page        *zone_mem_map;		//The first page in the global mem_map this zone refers to
+85     unsigned long      zone_start_paddr;
+86     unsigned long      zone_start_mapnr;
+87 
+91     char               *name;			//The string name of the zone, “DMA”, “Normal” or “HighMem”
+92     unsigned long      size;				//The size of the zone in pages
+93 } zone_t;
+
+Zone Watermarks
+When available memory in the system is low, the pageout daemon 
+kswapd is woken up to start freeing pages
+
+Each zone has three watermarks called pages_low, pages_min and 
+pages_high which help track how much pressure a zone is under.
+
+PAGES_LOW When pages_low number of free pages is reached, kswapd 
+is woken up by the buddy allocator to start freeing pages. 
+The value is twice the value of pages_min by default;
+
+PAGES_MIN When pages_min is reached, the allocator will do the 
+kswapd work in a synchronous fashion, sometimes referred to as 
+the direct-reclaim path. 
+
+PAGES_HIGH Once kswapd has been woken to start freeing pages it 
+will not consider the zone to be “balanced” when pages_high pages 
+are free. Once the watermark has been reached, kswapd will go back 
+to sleep. 
+The default for pages_high is three times the value of pages_min.
+
+
+Calculating the Size of Zones
+			setup_memory
+
+find_max_pfn find_max_low_pfn	init_bootmem  register_bootmem_low_pages	find_smp_config
+
+				init_bootmem_core	free_bootmem	  	find_intel_smp
+							free_bootmem_cores smp_	scan_config
+  									reserve_bootmem 
+									reserve_bootmem_core
+
+The pfn is an offset, counted in pages, within the physical memory map.
+The first PFN usable by the system, min_low_pfn is located at the beginning
+of the first page after _end which is the end of the loaded kernel image.
+The value is stored as a file scope variable in mm/bootmem.c for use with
+the boot memory allocator.
+
+Zone Wait Queue Table
+When IO is beginning performed on a page, such are during page-in or page-out,
+it's locked to prevent accessing it with inconsistent data. Processor wishing
+to use it have to join a wait queue before it can be accessed by calling
+wait_on_page(). When the IO is completed, the page will be unlocked with
+UnlockPage() and any process waiting on the queue will be woken up. Each page
+could have a wait queue but it would be very expensive in terms of memory to 
+have so many separate queues so instead, the wait queue is stored in zone_t.
+
+
+Process A wants to lock page
+
+__wait_on_page 		--->  page_waitqueue --->	struct page
+							page->flags
+			add_wait_queue()
+Sleeping 						page_zone()
+							wait_queue_head_t
+							wait_queue_head_t
+							wait_queue_head_t
+							zone->wait_table
+
+Zone Initialization
+The zones are initialised after the kernel page tables have been fully setup by paging_init(). 
+
+nid is the Node ID which is the logical identifier of the node whose zones are being initialised;
+pgdat is the node's pg_data_t that is being initialised. In UMA, this will simply be contig_page_data;
+pmap is set later by free_area_init_core() to point to the beginning of the local lmem_map array allocated for the node.
+zones_sizes is an array containing the size of each zone in pages
+zone_start_paddr is the starting physical address for the first zone;
+zone_holes is an array containing the total size of memory holes in the zones
+
+
+Inintializing mem_map
+The mem_map area is created during system startup in one of two fashions.
+On NUMA systems, the global mem_map is treated as a virtual array starting at PAGE_OFFSET.
+free_area_init_node() is called for each active node in the system which allocates 
+the portion of this array for the node being initialised.
+
+On UMA systems, free_area_init() is uses contig_page_data as the node and the 
+global mem_map as the “local” mem_map for this node. 
+
+
+PAGES
+Every physical page frame in the system has an associated struct page which is 
+used to keep track of its status.
+
+152 typedef struct page {
+153     struct list_head list;		//Pages may belong to many lists and this field is used as the list head.
+154     struct address_space *mapping;	//When files or devices are memory mapped, their inode has an associated address_space.
+155     unsigned long index;		//This field has two uses and it depends on the state of the page what it means.
+					//If the page is part of a file mapping, it is the offset within the file. If the page is 
+					//part of the swap cache this will be the offset within the address_space for the swap address space
+156     struct page *next_hash;		//Pages that are part of a file mapping are hashed on the inode and offset. 
+158     atomic_t count;			//The reference count to the page
+159     unsigned long flags;		// flags which describe the status of the page.
+161     struct list_head lru;		//For the page replacement policy, pages that may be swapped out will exist on 
+					//either the active_list or the inactive_list
+163     struct page **pprev_hash;	//
+164     struct buffer_head * buffers;	//If a page has buffers for a block device associated with it, this field is 
+					//used to keep track of the buffer_head
+175
+176 #if defined(CONFIG_HIGHMEM) || defined(WANT_PAGE_VIRTUAL)
+177     void *virtual;
+179 #endif /* CONFIG_HIGMEM || WANT_PAGE_VIRTUAL */
+180 } mem_map_t;
+
+
+Mapping Pages to Zones
+set_page_zone(page, nid * MAX_NR_ZONES + j);
+
+
+High Memory
+As the addresses space usable by the kernel (ZONE_NORMAL) is limited in size, the 
+kernel has support for the concept of High Memory. 
+
+To access memory between the range of 1GiB and 4GiB, the kernel temporarily maps 
+pages from high memory into ZONE_NORMAL with kmap().
