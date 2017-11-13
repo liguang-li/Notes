@@ -229,3 +229,334 @@ kernel has support for the concept of High Memory.
 
 To access memory between the range of 1GiB and 4GiB, the kernel temporarily maps 
 pages from high memory into ZONE_NORMAL with kmap().
+
+
+
+Page Table Management
+Describing the Page Directory
+Each process a pointer (mm_struct->pgd) to its own Page Global Directory (PGD) which
+is a physical page frame. This frame contains an array of type pgd_t which is an 
+architecture specific type defined in <asm/page.h>.
+
+On the x86, the process page table is loaded by copying mm_struct->pgd into the cr3 
+register which has the side effect of flushing the TLB. In fact this is how the function
+__flush_tlb() is implemented in the architecture dependent code.
+
+Each active entry in the PGD table points to a page frame containing an array of Page
+Middle Directory (PMD) entries of type pmd_t which in turn points to page frames containing
+Page Table Entries (PTE) of type pte_t, which finally points to page frames containing the
+actual user data. 
+
+In the event the page has been swapped out to backing storage, the swap entry is
+stored in the PTE and used by do_swap_page() during page fault to find the swap 
+entry containing the page data. 
+
+				linear address
+offset within process PGD	offset within PMD page frame	offset within PTE page frame	offset within Date frame
+	|				|				|				|	________
+	|				|				|				|	|	|
+	|				|				|				------->|	|
+	|				|				|		________		|	|
+	|				|				|		|	|		|	|
+	|				|				pte_offset()--->|pte_t	|-------------->|_______|
+	|				|						|	|		Page frame
+	|				|		 ________			|	|		with user date
+	|				|		 |	|			|	|
+	|				pmd_offset()---->|pmd_t |---------------------->|_______|
+	|						 |	|			pte_t page
+	|     	       _______				 |	|			frame
+	|	       |      |				 |	|
+pgd_offset()---------->|pgd_t |------------------------->|______|
+  		|      |      |				pmd_t page
+		|      |      |				frame
+	    pdg_index()|      |
+		|      |      |
+mm_struct->pgd--------->______|
+			only 1 
+			pgd_t page frame
+
+
+Any given linear address may be broken up into parts to yield offsets
+within these three page table levels and an offset within the actual page.
+
+The SHIFT macros specifies the length in bits that are mapped by each level of the page tables.
+
+					linear address
+					BITS_PER_LONG
+		________________________________________________________________
+		|		|		|		|		|
+		|PGD		|PMD		|PTE		|OFFSET		|
+		-----------------------------------------------------------------
+								<--PAGE_SHIFT--->
+						<-----------PMD_SHIFT----------->
+				<--------------------PGDIR_SHHIFT--------------->
+
+
+The MASK values can be AND with a linear address to mask out all the
+upper bits and is frequently used to determine if a linear address
+is aligned to a given level within the page table.
+
+The SIZE macros reveal how many bytes are addressed by each entry at each level.
+
+					Linear address
+					BITS_PER_LONG
+		-----------------------------------------------------------------
+		|		|		|		|		|
+		|PGD		|PMD		|PTE		|OFFSET		|
+		-----------------------------------------------------------------
+		<---------------------PAGE_MASK-----------------><---PAGE_SIZE-->
+		<------------PMD_MASK----------><------------PMD_SIZE----------->
+		<--PGDIR_MASK--><-----------------PGDIR_SIZE-------------------->
+
+#define PAGE_SHIFT      12
+#define PAGE_SIZE       (1UL << PAGE_SHIFT)
+#define PAGE_MASK       (~(PAGE_SIZE-1))
+
+
+Describing a Page Table Entry
+Each entry is described by the structs pte_t, pmd_t and pgd_t for PTEs, PMDs and
+PGDs respectively. Even though these are often just unsigned integers, they are 
+defined as structs for two reasons. 
+
+The first is for type protection so that they will not be used inappropriately. 
+The second is for features like PAE on the x86 where an additional 4 bits is used
+for addressing more than 4GiB of memory. 
+
+To store the protection bits, pgprot_t is defined which holds the relevant flags
+and is usually stored in the lower bits of a page table entry.
+
+For type casting, 4 macros are provided in asm/page.h, which takes the above types
+and returns the relevant part of the structs. They are pte_val(), pmd_val(), pgd_val()
+and pgprot_val().
+
+ To reverse the type casting, 4 more macros are provided __pte(), __pmd(), __pgd() and
+__pgprot().
+
+On an x86 with no PAE, the pte_t is simply a 32 bit integer within a struct. Each pte_t
+points to an address of a page frame and all the addresses pointed to are guaranteed to
+be page aligned. Therefore, there are PAGE_SHIFT (12) bits in that 32 bit value that are
+free for status bits of the page table entry.
+
+
+Using Page Table Entries
+To navigate the page directories, three macros are provided which break up a linear 
+address space into its component parts. 
+
+pgd_offset() takes an address and the mm_struct for the process and returns the PGD
+entry that covers the requested address. 
+pmd_offset() takes a PGD entry and an address and returns the relevant PMD. 
+pte_offset() takes a PMD and returns the relevant PTE. 
+
+The remainder of the linear address provided is the offset within the page. 
+
+pte_none(), pmd_none() and pgd_none() return 1 if the corresponding entry does not exist
+pte_present(), pmd_present() and pgd_present() return 1 if the corresponding page 
+table entries have the PRESENT bit set
+pte_clear(), pmd_clear() and pgd_clear() will clear the corresponding page table entry
+
+pmd_bad() and pgd_bad() are used to check entries when passed as input parameters to
+functions that may change the value of the entries. Whether it returns 1 varies between
+the few architectures that define these macros but for those that actually define it,
+making sure the page entry is marked as present and accessed are the two most important checks.
+
+follow_page()
+
+407         pgd_t *pgd;
+408         pmd_t *pmd;
+409         pte_t *ptep, pte;
+410 
+411         pgd = pgd_offset(mm, address);
+412         if (pgd_none(*pgd) || pgd_bad(*pgd))
+413                 goto out;
+414 
+415         pmd = pmd_offset(pgd, address);
+416         if (pmd_none(*pmd) || pmd_bad(*pmd))
+417                 goto out;
+418 
+419         ptep = pte_offset(pmd, address);
+420         if (!ptep)
+421                 goto out;
+422 
+423         pte = *ptep;
+
+The read permissions for an entry are tested with pte_read(), set with pte_mkread()
+and cleared with pte_rdprotect();
+The write permissions are tested with pte_write(), set with pte_mkwrite() and 
+cleared with pte_wrprotect();
+The execute permissions are tested with pte_exec(), set with pte_mkexec() and 
+cleared with pte_exprotect().
+The permissions can be modified to a new value with pte_modify() but its use is 
+almost non-existent. It is only used in the function change_pte_range()
+
+The fourth set of macros examine and set the state of an entry. There are only
+two bits that are important in Linux, the dirty bit and the accessed bit. 
+
+To check these bits, the macros pte_dirty() and pte_young() macros are used. 
+To set the bits, the macros pte_mkdirty() and pte_mkyoung() are used. 
+To clear them, the macros pte_mkclean() and pte_old() are available.
+
+
+Translating and Setting Page Table Entries
+mk_pte() takes a struct page and protection bits and combines them 
+together to form the pte_t
+
+pte_page() returns the struct page which corresponds to the PTE entry.
+
+pmd_page() returns the struct page containing the set of PTEs.
+
+set_pte() takes a pte_t such as that returned by mk_pte() and 
+places it within the processes page tables. 
+
+pte_clear() is the reverse operation. 
+
+ptep_get_and_clear() which clears an entry from the process page
+table and returns the pte_t
+
+
+Allocating and Freeing Page Tables
+The pages used for the page tables are cached in a number of different
+lists called quicklists.
+
+PGDs, PMDs and PTEs have two sets of functions each for the allocation and
+freeing of page tables. The allocation functions are pgd_alloc(), pmd_alloc()
+and pte_alloc() respectively and the free functions are, predictably enough,
+called pgd_free(), pmd_free() and pte_free().
+
+If a page is not available from the cache, a page will be allocated using the
+physical page allocator. The functions for the three levels of page tables
+are get_pgd_slow(), pmd_alloc_one() and pte_alloc_one().
+
+
+Kernel Page Tables
+When the system first starts, paging is not enabled as page tables do not
+magically initialise themselves. Each architecture implements this differently 
+so only the x86 case will be discussed. 
+
+The page table initialisation is divided into two phases. The bootstrap phase
+sets up page tables for just 8MiB so the paging unit can be enabled. 
+The second phase initialises the rest of the page tables.
+
+Bootstrapping
+The assembler function startup_32() is responsible for enabling the paging 
+unit in arch/i386/kernel/head.S. 
+While all normal kernel code in vmlinuz is compiled with the base address 
+at PAGE_OFFSET + 1MiB, the kernel is actually loaded beginning at the first
+megabyte (0x00100000) of memory. 
+
+The first megabyte is used by some devices for communication with the BIOS and is skipped.
+
+The bootstrap code in this file treats 1MiB as its base address by subtracting
+__PAGE_OFFSET from any address until the paging unit is enabled so before the 
+paging unit is enabled, a page table mapping has to be established which 
+translates the 8MiB of physical memory to the virtual address PAGE_OFFSET.
+
+Initialisation begins with statically defining at compile time an array called
+swapper_pg_dir which is placed using linker directives at 0x00101000. It then
+establishes page table entries for 2 pages, pg0 and pg1. 
+The first pointers to pg0 and pg1 are placed to cover the region 1-9MiB the 
+second pointers to pg0 and pg1 are placed at PAGE_OFFSET+1MiB. 
+This means that when paging is enabled, they will map to the correct pages 
+using either physical or virtual addressing for just the kernel image. 
+
+The rest of the kernel page tables will be initialised by paging_init().
+
+
+Finalising
+			paging_init()
+	pagetable_init	kmap_init	zones_size_init
+	fixrange_init	kmap_get_fixmap_pte	
+	alloc_bootmem_low_pages
+
+The function first calls pagetable_init() to initialise the page tables 
+necessary to reference all physical memory in ZONE_DMA and ZONE_NORMAL. 
+Remember that high memory in ZONE_HIGHMEM cannot be directly referenced 
+and mappings are set up for it temporarily. 
+
+For each pgd_t used by the kernel, the boot memory allocator is called
+to allocate a page for the PMDs
+
+A page for PTEs will be allocated for each pmd_t.
+
+If the CPU supports the PGE flag, it also will be set so that the page 
+table entry will be global and visible to all processes.
+
+pagetable_init() calls fixrange_init() to setup the fixed address space 
+mappings at the end of the virtual address space starting at FIXADDR_START. 
+These mappings are used for purposes such as the local APIC and the atomic
+kmappings between FIX_KMAP_BEGIN and FIX_KMAP_END required by kmap_atomic().
+
+calls fixrange_init() to initialise the page table entries required for 
+normal high memory mappings with kmap().
+
+Once pagetable_init() returns, the page tables for kernel space are now full
+initialised so the static PGD (swapper_pg_dir) is loaded into the CR3 register
+so that the static table is now being used by the paging unit.
+
+
+Mapping addresses to a struct page
+There is a requirement for Linux to have a fast method of mapping virtual addresses 
+to physical addresses and for mapping struct pages to their physical address.
+
+Linux achieves this by knowing where, in both virtual and physical memory, the
+global mem_map array is as the global array has pointers to all struct pages
+representing physical memory in the system. All architectures achieve this 
+with very similar mechanisms.
+
+Mapping Physical to Virtual Kernel Addresses
+
+Linux sets up a direct mapping from the physical address 0 to the virtual 
+address PAGE_OFFSET at 3GiB on the x86. This means that any virtual address
+can be translated to the physical address by simply subtracting PAGE_OFFSET
+which is essentially what the function virt_to_phys() with the macro __pa() i
+does:
+
+/* from <asm-i386/page.h> */
+132 #define __pa(x)                 ((unsigned long)(x)-PAGE_OFFSET)
+
+/* from <asm-i386/io.h> */
+ 76 static inline unsigned long virt_to_phys(volatile void * address)
+ 77 {
+ 78         return __pa(address);
+ 79 }
+
+Obviously the reverse operation involves simply adding PAGE_OFFSET which 
+is carried out by the function phys_to_virt() with the macro __va().
+
+Mapping struct pages to Physical Addresses
+
+The kernel image is located at the physical address 1MiB, which of course 
+translates to the virtual address PAGE_OFFSET + 0x00100000 and a virtual 
+region totaling about 8MiB is reserved for the image which is the region 
+that can be addressed by two PGDs. This would imply that the first available 
+memory to use is located at 0xC0800000 but that is not the case. 
+
+Linux tries to reserve the first 16MiB of memory for ZONE_DMA so first virtual 
+area used for kernel allocations is actually 0xC1000000. This is where the 
+global mem_map is usually located. ZONE_DMA will be still get used, but only 
+when absolutely necessary.
+
+Physical addresses are translated to struct pages by treating them as an 
+index into the mem_map array. 
+
+Shifting a physical address PAGE_SHIFT bits to the right will treat it as 
+a PFN from physical address 0 which is also an index within the mem_map 
+array. This is exactly what the macro virt_to_page() does which is declared 
+as follows in <asm-i386/page.h>:
+
+#define virt_to_page(kaddr) (mem_map + (__pa(kaddr) >> PAGE_SHIFT))
+
+The macro virt_to_page() takes the virtual address kaddr, converts it to 
+the physical address with __pa(), converts it into an array index by bit 
+shifting it right PAGE_SHIFT bits and indexing into the mem_map by simply 
+adding them together.
+
+
+
+Translation Lookaside Buffer (TLB)
+
+
+
+
+
+
+
