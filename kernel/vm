@@ -553,10 +553,179 @@ adding them together.
 
 
 Translation Lookaside Buffer (TLB)
+Initially, when the processor needs to map a virtual address to a physical 
+address, it must traverse the full page directory searching for the PTE of 
+interest. This would normally imply that each assembly instruction that 
+references memory actually requires several separate memory references 
+for the page table traversal.
+
+To avoid this considerable overhead, architectures take advantage of the 
+fact that most processes exhibit a locality of reference or, in other words, 
+large numbers of memory references tend to be for a small number of pages.
+
+They take advantage of this reference locality by providing a Translation 
+Lookaside Buffer (TLB) which is a small associative memory that caches 
+virtual to physical page table resolutions.
+
+Linux assumes that the most architectures support some type of TLB although 
+the architecture independent code does not cares how it works. Instead, 
+architecture dependant hooks are dispersed throughout the VM code at points 
+where it is known that some hardware with a TLB would need to perform a TLB 
+related operation. 
+
+For example, when the page tables have been updated, such as after a page 
+fault has completed, the processor may need to be update the TLB for that 
+virtual address mapping.
+
+Not all architectures require these type of operations but because some do, 
+the hooks have to exist. If the architecture does not require the operation 
+to be performed, the function for that TLB operation will a null operation 
+that is optimised out at compile time
+
+void flush_tlb_all(void)
+This flushes the entire TLB on all processors running in the system making 
+it the most expensive TLB flush operation. After it completes, all modifications 
+to the page tables will be visible globally. This is required after the 
+kernel page tables, which are global in nature, have been modified such 
+as after vfree() completes or after the PKMap is flushed.
+
+void flush_tlb_mm(struct mm_struct *mm)
+This flushes all TLB entries related to the userspace portion for the 
+requested mm context.
+
+In some architectures, such as MIPS, this will need to be performed for 
+all processors but usually it is confined to the local processor. This is 
+only called when an operation has been performed that affects the entire 
+address space, such as after all the address mapping have been duplicated 
+with dup_mmap() for fork or after all memory mappings have been deleted 
+with exit_mmap().
+
+void flush_tlb_range(struct mm_struct *mm, unsigned long start, unsigned long end)
+this flushes all entries within the requested userspace range for the mm 
+context. This is used after a new region has been moved or changeh as during 
+mremap() which moves regions or mprotect() which changes the permissions. 
+The function is also indirectly used during unmapping a region with munmap() 
+which calls tlb_finish_mmu() which tries to use flush_tlb_range() intelligently. 
+This API is provided for architectures that can remove ranges of TLB entries 
+quickly rather than iterating with flush_tlb_page().
+
+void flush_tlb_page(struct vm_area_struct *vma, unsigned long addr)
+This API is responsible for flushing a single page from the TLB. The two most 
+common usage of it is for flushing the TLB after a page has been faulted 
+in or has been paged out.
+
+
+void flush_tlb_pgtables(struct mm_struct *mm, unsigned long start, unsigned long end)
+This API is called with the page tables are being torn down and freed. Some 
+platforms cache the lowest level of the page table, i.e. the actual page frame 
+storing entries, which needs to be flushed when the pages are being deleted. 
+This is called when a region is being unmapped and the page directory entries 
+are being reclaimed.
+
+void update_mmu_cache(struct vm_area_struct *vma, unsigned long addr, pte_t pte)
+This API is only called after a page fault completes. It tells the architecture 
+dependant code that a new translation now exists at pte for the virtual address addr. 
+It is up to each architecture how this information should be used. For example, 
+Sparc64 uses the information to decide if the local CPU needs to flush it's data 
+cache or does it need to send an IPI to a remote processor.
 
 
 
+Level 1 CPU Cache Management
+CPU caches, like TLB caches, take advantage of the fact that programs tend to 
+exhibit a locality of reference.
+
+To avoid having to fetch data from main memory for each reference, the CPU 
+will instead cache very small amounts of data in the CPU cache. 
+
+Frequently, there is two levels called the Level 1 and Level 2 CPU caches. 
+The Level 2 CPU caches are larger but slower than the L1 cache but Linux 
+only concerns itself with the Level 1 or L1 cache.
+
+CPU caches are organised into lines. Each line is typically quite small, 
+usually 32 bytes and each line is aligned to it's boundary size. In other words, 
+a cache line of 32 bytes will be aligned on a 32 byte address.
+
+With Linux, the size of the line is L1_CACHE_BYTES which is defined by each architecture.
 
 
+How addresses are mapped to cache lines vary between architectures but the 
+mappings come under three headings, direct mapping, associative mapping and 
+set associative mapping. 
+
+Direct mapping is the simpliest approach where each block of memory maps to only 
+one possible cache line. 
+
+With associative mapping, any block of memory can map to any cache line. 
+
+Set associative mapping is a hybrid approach where any block of memory can 
+may to any line but only within a subset of the available lines. 
+
+Regardless of the mapping scheme, they each have one thing in common, addresses 
+that are close together and aligned to the cache size are likely to use different 
+lines. Hence Linux employs simple tricks to try and maximise cache usage.
+
+Frequently accessed structure fields are at the start of the structure to 
+increase the chance that only one line is needed to address the common fields;
+
+Unrelated items in a structure should try to be at least cache size bytes 
+apart to avoid false sharing between CPUs;
+
+Objects in the general caches, such as the mm_struct cache, are aligned to 
+the L1 CPU cache to avoid false sharing.
+
+If the CPU references an address that is not in the cache, a cache missccurs 
+and the data is fetched from main memory. The cost of cache misses is quite 
+high as a reference to cache can typically be performed in less than 10ns 
+where a reference to main memory typically will cost between 100ns and 200ns. 
+
+The basic objective is then to have as many cache hits and as few cache misses 
+as possible.
+
+Just as some architectures do not automatically manage their TLBs, some do 
+not automatically manage their CPU caches. The hooks are placed in locations 
+where the virtual to physical mapping changes, such as during a page table 
+update. The CPU cache flushes should always take place first as some CPUs 
+require a virtual to physical mapping to exist when the virtual address 
+is being flushed from the cache. 
+
+void flush_cache_all(void)
+This flushes the entire CPU cache system making it the most severe 
+flush operation to use. It is used when changes to the kernel page 
+tables, which are global in nature, are to be performed.
+
+void flush_cache_mm(struct mm_struct mm)
+This flushes all entires related to the address space. On completion, 
+no cache lines will be associated with mm.
+
+void flush_cache_range(struct mm_struct *mm, unsigned long start, unsigned long end)
+This flushes lines related to a range of addresses in the address space. 
+Like it's TLB equivilant, it is provided in case the architecture has an 
+efficent way of flushing ranges instead of flushing each individual page.
+
+void flush_cache_page(struct vm_area_struct *vma, unsigned long vmaddr)
+This is for flushing a single page sized region. The VMA is supplied as 
+the mm_struct is easily accessible via vma->vm_mm. Additionaly, by testing
+for the VM_EXEC flag, the architecture will know if the region is executable 
+for caches that separate the instructions and data caches.
 
 
+A second set of interfaces is required to avoid virtual aliasing problems. 
+The problem is that some CPUs select lines based on the virtual address 
+meaning that one physical address can exist on multiple lines leading to 
+cache coherency problems. Architectures with this problem may try and ensure 
+that shared mappings will only use addresses as a stop-gap measure.
+
+
+void flush_dcache_page(struct page *page
+This function is called when the kernel writes to or copies from a page cache 
+page as these are likely to be mapped by multiple processes.
+
+void flush_icache_range(unsigned long address, unsigned long endaddr)
+This is called when the kernel stores information in addresses that is 
+likely to be executed, such as when a kermel module has been loaded.
+
+void flush_icache_page(struct vm_area_struct *vma, struct page *page)
+This is called when a page-cache page is about to be mapped. It is up 
+to the architecture to use the VMA flags to determine whether the 
+I-Cache or D-Cache should be flushed.
