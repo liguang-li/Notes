@@ -1,0 +1,67 @@
+Printk works more or less the same way as printf in userspace
+
+In order to see the kernel messages, just use the 
+$dmsg
+command in one of your shells.
+
+If you want to debug an oops in your driver and you don't have a clue
+where the oops happens, simply add this line
+
+printk(KERN_ALERT "DEBUG: passed %s %d \n", __FUNCTION__, __LINE__);
+
+Name		String		Meaning					alias function
+KERN_EMERG	"0"	Emergency messages, system is about to		pr_emerg
+			crash or is unstable			
+KERN_ALERT	"1"	Something bad happened and action must		pr_alert
+			be taken immediately			
+KERN_CRIT	"2"	A critical condition occured like a 		pr_crit
+			serious hardware/software failure	
+KERN_ERR	"3"	Am errpr condition, often used by drivers	pr_err	
+			to indicate difficulties with the hardware
+KERN_WARNING	"4"	A warning, meaning nothing serious by itself	pr_warning
+			but might indicate problems		
+KERN_NOTICE	"5"	Nothing serious, but notably nevertheless.	pr_notice
+			Often used to report security events	
+KERN_INFO	"6"	Information message e.g. startup information	pr_info
+			at driver initialization
+KERN_DEBUG	"7"	Debug messages					pr_debug,pr_devel if DEBUG is defined
+KERN_DEFAULT	"d"	The default kernel loglevel		
+KERN_CONT	""	"continued" line of log printout(only done	pr_cont
+			after a line that had no enclosing \n)
+
+If you don't specify a log level in your message it defaults to DEFAULT_MESSAGE_LOGLEVEL
+(usually "4"=KERN_WARNING) which can be set via the CONFIG_DEFAULT_MESSAGE_LOGLEVEL kernel
+config option
+
+For the kernel compares the log level of the message to the console_loglevel(a kernel 
+variable) amd of the priority is higher than the console_loglevel the message will bv
+printed to the current console.
+
+To determine your current console_loglevel you simply enter:
+$cat /proc/sys/kernel/printk
+	7	4	1	7
+	current	default	minimun	boot-time-default
+
+To change the current console_loglevel simply write to this file, so in order to
+get all the messages printed to the console do a simple
+
+echo 8 > /proc/sys/kernel/printk
+
+and every kernel message will appear on your console.
+
+Important Note: You can also specify the console_loglevel at boot time using the loglevel boot parameter.
+		KERN_CONT and pr_cont should only be used by core/arch code during early bootup.
+
+printk_ratelimited(): it prints by default not more than 10 times in every 5 seconds
+
+
+Printk is implemented by using a ring buffer in the kernel with a size of __LOG_BUF_LEN bytes
+where __LOG_BUF_LEN equals (1 << CONFIG_LOG_BUF_SHIFT).
+
+
+For the early stages in the boot process, where no console is available yet, there is a special
+function named early_printk, this function writes directly ti the VGA buffer or a serial line
+but otherwise wirks just like printk -- you have to enable this function by setting CONFIG_EARLY_PRINTK
+in your kernel config (make menuconfig -> kernel hacking -> early printk
+
+dmesg -c //clearing the buffer
