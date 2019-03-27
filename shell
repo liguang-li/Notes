@@ -1,0 +1,5 @@
+C-W g+f //open the file of the current cursor to a new tab
+
+C-W+s/v C-W S-T	//open the function in the new tab
+
+Esc + . //
