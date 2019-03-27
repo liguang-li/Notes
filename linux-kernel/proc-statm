@@ -1,0 +1,5 @@
+cat /proc/self/statm
+
+Page size.
+
+VmSize VmRss Shared Text Library Data-Heap-Stack Dirty

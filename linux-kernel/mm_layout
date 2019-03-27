@@ -1,0 +1,29 @@
+execve	->	load_elf_binary
+
+
+				linux kernel
+
+
+				------------	TASK_SIZE
+				............	Gap
+	end_env/start_stack	------------	STACK_TOP
+	start_env/end_arg	............
+	start_arg		------------
+
+				STACK_VMA
+				------------
+				     
+				------------
+				mmap
+
+	brk			------------
+				heap
+	start_brk		------------
+	
+	end_data		------------
+	start_date		------------
+
+	end_code		------------
+	start_code		------------
+				------------
+
