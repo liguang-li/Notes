@@ -21,3 +21,4 @@ PROCESS STATE CODES
        l    is multi-threaded (using CLONE_THREAD, like NPTL pthreads do)
        +    is in the foreground process group
 
+ps -A -o comm,pid,ppid,cmd,stat
