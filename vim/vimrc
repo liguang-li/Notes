@@ -1,0 +1,41 @@
+set ic		"
+#set noic
+set hls		"highlight the match word
+set is		"show the port of the match
+
+set nobackup
+set noswapfile
+
+set encoding=utf-8
+
+"cancel a newline
+set nowrap
+
+"display the current location of the cursor
+set ruler
+
+set cindent
+set tabstop=2
+set shiftwidth=2
+
+"highlight the current line
+set cursorline
+
+"display the current vim mode in the lower left corner
+set showmode
+
+#set nofoldenable
+
+syntax enable
+
+set background=dark
+
+#colorscheme solarized
+
+"Vim settings, rather than Vi settings (much better!). 
+" This must be first, because it changes other options as a side effect. 
+set nocompatible
+
+set history=50          " keep 50 lines of command line history
+set showcmd             " display incomplete commands
+set incsearch           " do incremental searching

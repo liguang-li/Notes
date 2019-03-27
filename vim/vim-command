@@ -1,0 +1,87 @@
+Install: //Ubuntu
+sudo apt-get install vim
+
+manual
+vimtutor
+
+hjkl		//
+2w		//forward 2 words
+3e		//forward to the end of 3 words
+0		//goto the beginning of the line
+$		//goto the end of the line
+gg		//the first line of the file
+G		//the last line of the file
+<ctrl> + o	//
+<ctrl> + i	//
+
+<esc>
+:q!
+:wq
+
+x		//delete the current character
+dw		//delete the current word
+de		//
+d$		//delete to the end of the current line
+dd		//delete the current line
+Ndd		//delete N line
+
+
+i		//insert
+A		//insert in the end of the current line
+r		//change the current character
+o		//open a new line and enter the insert mode
+
+u		//revert
+<ctrl> + r	//cancel the revert
+
+v
+y
+p
+yy
+dd
+
+<ctrl> + g	//show the information of the current line and the file
+
+/		//find
+?		//
+%		//{,[,(
+
+:s/old/new	//replace the first old with new in the current line
+:s/old/new/g 	//replace the old with new in the current line
+:%s/old/new/g	//replace the old with new in the file
+
+:!shellcommand	//run the external shell command
+
+gd		//goto the defination of the variable
+
+<ctrl> + p
+<ctrl> + n	
+
+H M L		//
+
+<ctrl> + f
+<ctrl> + d
+<ctrl> + b
+<ctrl> + u
+
+~		//change the current character to upcase
+3~		//3 characters to upcase
+g~~		//change the current line to up
+
+U		//change the current charater to up in visual mode
+u		//
+
+gUU		//change the initialism to up
+guu		//
+
+guw		//change the word to lowercase
+gUw		//
+
+ggguG		//change the whole file to lowercase
+gggUG		//
+
+gU0		//
+gU$		//
+
+
+%!xxd		//Change the file to hex format
