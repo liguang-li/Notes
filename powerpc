@@ -1,0 +1,23 @@
+r0: 
+r1: ==> %%rsp
+r2:
+r3 - r16: parameters
+
+r3 - r4: return values
+
+lr: 存放函数返回地址(即调用该函数的返回地址)，某些转移指令将lr寄存器为该指令的下一条指令
+nip: next instruction point
+
+CTR: count register　用来保存循环变量
+TRAP: why trigger oops
+MSR: machine state register
+CR: condition register (条件寄存器)
+DAR: data address register,其值为造成内存访问异常的地址
+DSISR: 
+
+
+
+add r3,r4,r5	r3=r4+r5
+add. r3,r4,r5   .表示影响cr寄存器的值
+
+
